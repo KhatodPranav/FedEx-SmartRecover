@@ -8,6 +8,10 @@ app = Flask(__name__)
 app.secret_key = 'hackathon_secret_key'
 app.config['UPLOAD_FOLDER'] = 'uploads'
 
+# Ensure the upload folder exists
+if not os.path.exists(app.config['UPLOAD_FOLDER']):
+    os.makedirs(app.config['UPLOAD_FOLDER'])
+
 def get_db_connection():
     return mysql.connector.connect(
         host="localhost", user="root", password="PK289", database="fedex_dca"
@@ -70,16 +74,56 @@ def admin_dashboard():
     
     cursor.execute("SELECT * FROM cases")
     all_cases = cursor.fetchall()
+
+    cursor.execute("SELECT * FROM users WHERE role = 'agency'")
+    agencies = cursor.fetchall()
+
     conn.close()
+    return render_template('admin_dashboard.html', cases=all_cases, logs=recent_logs, agencies=agencies)
+
+@app.route('/add_agency', methods=['POST'])
+def add_agency():
+    if 'role' not in session or session['role'] != 'admin':
+        return redirect(url_for('login'))
+
+    username = request.form['username']
+    password = request.form['password']
+    agency_name = request.form['agency_name']
     
-    return render_template('admin_dashboard.html', cases=all_cases, logs=recent_logs)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Create the new agency user
+        cursor.execute(
+            "INSERT INTO users (username, password, role, agency_name) VALUES (%s, %s, 'agency', %s)", 
+            (username, password, agency_name)
+        )
+        conn.commit()
+        
+        # Log the action
+        conn.close() # Close before calling log_audit to avoid conflict
+        log_audit(None, session['id'], 'ADD_AGENCY', f"Onboarded new agency: {agency_name}")
+        
+    except Exception as e:
+        print(f"Error adding agency: {e}")
+        if conn.is_connected():
+            conn.close()
+        
+    return redirect(url_for('admin_dashboard'))
 
 @app.route('/upload_data', methods=['POST'])
 def upload_data():
     if 'role' not in session or session['role'] != 'admin':
         return redirect(url_for('login'))
 
+    if 'file' not in request.files:
+        return redirect(url_for('admin_dashboard'))
+
     file = request.files['file']
+    if file.filename == '':
+        return redirect(url_for('admin_dashboard'))
+
     if file:
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
         file.save(filepath)
@@ -88,7 +132,7 @@ def upload_data():
             df = pd.read_csv(filepath)
             conn = get_db_connection()
             cursor = conn.cursor()
-            count = 0 
+            count = 0
             
             for index, row in df.iterrows():
                 sql = "INSERT INTO cases (customer_name, amount_due, days_overdue, status) VALUES (%s, %s, %s, 'New')"
@@ -97,13 +141,79 @@ def upload_data():
                 count += 1
             
             conn.commit()
+            conn.close()
+            
+            # Log outside the loop to be safe
             log_audit(None, session['id'], 'BULK_UPLOAD', f"Uploaded {count} cases via {file.filename}")
             
-            conn.close()
-            return redirect(url_for('admin_dashboard'))
-            
         except Exception as e:
-            return f"Error: {e}"
+            return f"Error processing file: {e}"
+
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/assign_case', methods=['POST'])
+def assign_case():
+    if 'role' not in session or session['role'] != 'admin':
+        return redirect(url_for('login'))
+
+    case_id = request.form['case_id']
+    agency_id = request.form['agency_id']
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    
+    sql = "UPDATE cases SET assigned_to_agency_id = %s, status = 'Assigned' WHERE case_id = %s"
+    cursor.execute(sql, (agency_id, case_id))
+    
+    cursor.execute("SELECT username FROM users WHERE id = %s", (agency_id,))
+    agency_name = cursor.fetchone()[0]
+
+    conn.commit()
+    log_audit(case_id, session['id'], 'MANUAL_ASSIGN', f"Assigned Case #{case_id} to Agency '{agency_name}'")
+    
+    conn.close()
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/update_case_status', methods=['POST'])
+def update_case_status():
+    if 'role' not in session or session['role'] != 'agency':
+        return redirect(url_for('login'))
+
+    case_id = request.form['case_id']
+    new_status = request.form['new_status']
+    agency_id = session['id']
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    sql = "UPDATE cases SET status = %s WHERE case_id = %s AND assigned_to_agency_id = %s"
+    cursor.execute(sql, (new_status, case_id, agency_id))
+    
+    conn.commit()
+
+    log_audit(case_id, agency_id, 'STATUS_UPDATE', f"Agency updated status to '{new_status}'")
+    
+    conn.close()
+    
+    return redirect(url_for('agency_dashboard'))
+
+@app.route('/agency')
+def agency_dashboard():
+
+    if 'role' not in session or session['role'] != 'agency':
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    agency_id = session['id']
+    cursor.execute("SELECT * FROM cases WHERE assigned_to_agency_id = %s", (agency_id,))
+    my_cases = cursor.fetchall()
+    
+    conn.close()
+    
+    return render_template('agency_dashboard.html', cases=my_cases)
 
 @app.route('/logout')
 def logout():

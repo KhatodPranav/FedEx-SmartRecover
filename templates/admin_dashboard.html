@@ -156,17 +156,38 @@
                         <td>{{ case.customer_name }}</td>
                         <td>${{ case.amount_due }}</td>
                         <td>{{ case.days_overdue }}</td>
-                        <td><span class="status-new">{{ case.status }}</span></td>
+                        
+                        <td>
+                            {% if case.status == 'New' %}
+                                <span class="status-new">New</span>
+                            {% elif case.status == 'Assigned' %}
+                                <span style="color:blue; font-weight:bold;">Assigned</span>
+                            {% else %}
+                                <span>{{ case.status }}</span>
+                            {% endif %}
+                        </td>
+
                         <td>
                             {% if case.assigned_to_agency_id %}
-                                ID: {{ case.assigned_to_agency_id }}
+                                <strong>Assigned to ID: {{ case.assigned_to_agency_id }}</strong>
                             {% else %}
-                                <span style="color:red; font-size:12px;">Unassigned</span>
+                                <form action="/assign_case" method="post" style="display:flex;">
+                                    <input type="hidden" name="case_id" value="{{ case.case_id }}">
+                                    
+                                    <select name="agency_id" required style="padding:5px; margin-right:5px;">
+                                        <option value="" disabled selected>Select Agency</option>
+                                        {% for agency in agencies %}
+                                            <option value="{{ agency.id }}">{{ agency.agency_name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    
+                                    <button type="submit" style="background:#4D148C; color:white; border:none; cursor:pointer; padding:5px;">Assign</button>
+                                </form>
                             {% endif %}
                         </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="6" style="text-align:center;">No data available. Please upload a CSV file.</td></tr>
+                    <tr><td colspan="6" style="text-align:center;">No data available.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

@@ -1,30 +1,67 @@
 <!DOCTYPE html>
-<html>
-<head><title>Agency Portal</title></head>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Agency Work Portal</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f7; padding: 20px; }
+        .navbar { background-color: #FF6600; color: white; padding: 15px; display: flex; justify-content: space-between; border-radius: 5px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; border-radius: 5px; overflow: hidden; }
+        th { background-color: #333; color: white; padding: 12px; text-align: left; }
+        td { padding: 12px; border-bottom: 1px solid #ddd; }
+        select { padding: 5px; }
+        button { background-color: #4D148C; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
+        button:hover { opacity: 0.8; }
+    </style>
+</head>
 <body>
-    <h1>Agency Work Portal</h1>
-    <a href="/logout">Logout</a>
 
-    <h3>Your Assigned Cases</h3>
-    <table border="1">
-        <tr>
-            <th>Customer</th>
-            <th>Amount Due</th>
-            <th>Days Overdue</th>
-            <th>Status</th>
-            <th>Action</th>
-        </tr>
-        {% for case in cases %}
-        <tr>
-            <td>{{ case.customer_name }}</td>
-            <td>${{ case.amount_due }}</td>
-            <td>{{ case.days_overdue }}</td>
-            <td>{{ case.status }}</td>
-            <td><button>Update Status</button></td>
-        </tr>
-        {% else %}
-        <tr><td colspan="5">No cases assigned yet.</td></tr>
-        {% endfor %}
+    <div class="navbar">
+        <h2>My Agency Portal</h2>
+        <a href="/logout" style="color: white; text-decoration: none; font-weight: bold;">Logout</a>
+    </div>
+
+    <h3>My Assigned Cases</h3>
+    <p>Please update the status as you process these accounts.</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Customer</th>
+                <th>Amount Due</th>
+                <th>Days Overdue</th>
+                <th>Current Status</th>
+                <th>Update Status</th> </tr>
+        </thead>
+        <tbody>
+            {% for case in cases %}
+            <tr>
+                <td>{{ case.customer_name }}</td>
+                <td>${{ case.amount_due }}</td>
+                <td>{{ case.days_overdue }}</td>
+                <td style="font-weight:bold; color:#4D148C;">{{ case.status }}</td>
+                
+                <td>
+                    <form action="/update_case_status" method="post" style="display:flex; gap:10px;">
+                        <input type="hidden" name="case_id" value="{{ case.case_id }}">
+                        
+                        <select name="new_status">
+                            <option value="In Progress">In Progress</option>
+                            <option value="Contacted">Contacted</option>
+                            <option value="Promise to Pay">Promise to Pay</option>
+                            <option value="Paid">Paid (Closed)</option>
+                            <option value="Unreachable">Unreachable</option>
+                        </select>
+                        
+                        <button type="submit">Update</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5">No active cases assigned to you. Good job!</td></tr>
+            {% endfor %}
+        </tbody>
     </table>
+
 </body>
 </html>
