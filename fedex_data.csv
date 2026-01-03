@@ -1,0 +1,6 @@
+customer_name,amount_due,days_overdue,phone,risk_score
+John Doe,5000.00,45,9998887771,High
+Acme Corp,12000.50,90,9998887772,Medium
+Jane Smith,350.00,10,9998887773,Low
+Logistics Pro,45000.00,120,9998887774,High
+FastTrack Inc,2300.00,32,9998887775,Low

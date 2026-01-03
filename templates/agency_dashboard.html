@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head><title>Agency Portal</title></head>
+<body>
+    <h1>Agency Work Portal</h1>
+    <a href="/logout">Logout</a>
+
+    <h3>Your Assigned Cases</h3>
+    <table border="1">
+        <tr>
+            <th>Customer</th>
+            <th>Amount Due</th>
+            <th>Days Overdue</th>
+            <th>Status</th>
+            <th>Action</th>
+        </tr>
+        {% for case in cases %}
+        <tr>
+            <td>{{ case.customer_name }}</td>
+            <td>${{ case.amount_due }}</td>
+            <td>{{ case.days_overdue }}</td>
+            <td>{{ case.status }}</td>
+            <td><button>Update Status</button></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5">No cases assigned yet.</td></tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
