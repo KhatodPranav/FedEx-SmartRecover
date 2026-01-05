@@ -3,6 +3,8 @@ import pandas as pd
 from flask import Flask, render_template, request, redirect, url_for, session
 import mysql.connector
 from datetime import datetime
+import pickle
+import numpy as np
 
 app = Flask(__name__)
 app.secret_key = 'hackathon_secret_key'
@@ -28,6 +30,85 @@ def log_audit(case_id, user_id, action_type, description):
     cursor.execute(sql, val)
     conn.commit()
     conn.close()
+
+try:
+    model = pickle.load(open('risk_model.pkl', 'rb'))
+except:
+    model = None
+    print("⚠️ Model not found. Please run train_model.py first.")
+
+# --- NEW ROUTE: PREDICT RISK (AI SCORING) ---
+# --- UPDATED ROUTE: PREDICT RISK (WITH MODERATE) ---
+@app.route('/run_ai_scoring', methods=['POST'])
+def run_ai_scoring():
+    if 'role' not in session or session['role'] != 'admin':
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    cursor.execute("SELECT case_id, amount_due, days_overdue FROM cases WHERE status = 'New'")
+    new_cases = cursor.fetchall()
+    
+    updates = 0
+    if model:
+        for case in new_cases:
+            # Prepare input
+            features = np.array([[case['amount_due'], case['days_overdue']]])
+            
+            # GET PROBABILITY INSTEAD OF JUST YES/NO
+            # predict_proba returns [prob_of_0, prob_of_1]
+            # We want prob_of_1 (Probability they WILL PAY)
+            prob_pay = model.predict_proba(features)[0][1]
+            
+            # --- THE NEW LOGIC ---
+            if prob_pay > 0.70:       # More than 70% sure they will pay
+                risk_label = 'Low Risk'
+            elif prob_pay < 0.30:     # Less than 30% chance they will pay
+                risk_label = 'High Risk'
+            else:                     # Somewhere in between
+                risk_label = 'Moderate Risk'
+            
+            # Save to DB
+            cursor.execute("UPDATE cases SET risk_score = %s WHERE case_id = %s", (risk_label, case['case_id']))
+            updates += 1
+            
+        conn.commit()
+        log_audit(None, session['id'], 'AI_PREDICTION', f"AI scored {updates} cases (High/Mod/Low).")
+    
+    conn.close()
+    return redirect(url_for('admin_dashboard'))
+
+# --- NEW ROUTE: AUTO ALLOCATE (AUTOMATION) ---
+@app.route('/auto_allocate', methods=['POST'])
+def auto_allocate():
+    if 'role' not in session or session['role'] != 'admin':
+        return redirect(url_for('login'))
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    # 1. Find the best Agency (For this demo, just pick the first one)
+    cursor.execute("SELECT id, username FROM users WHERE role='agency' LIMIT 1")
+    target_agency = cursor.fetchone()
+    
+    if target_agency:
+        # 2. Find all 'High Risk' cases that are still 'New'
+        cursor.execute("SELECT case_id FROM cases WHERE risk_score = 'High Risk' AND status = 'New'")
+        hard_cases = cursor.fetchall()
+        
+        count = 0
+        for case in hard_cases:
+            cursor.execute("UPDATE cases SET assigned_to_agency_id = %s, status = 'Assigned' WHERE case_id = %s", 
+                           (target_agency['id'], case['case_id']))
+            count += 1
+            
+        conn.commit()
+        log_audit(None, session['id'], 'AUTO_ALLOCATE', f"Bot auto-assigned {count} High Risk cases to {target_agency['username']}")
+    
+    conn.close()
+    return redirect(url_for('admin_dashboard'))
+
 
 @app.route('/', methods=['GET', 'POST'])
 def login():

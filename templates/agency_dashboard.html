@@ -5,13 +5,20 @@
     <title>Agency Work Portal</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f7; padding: 20px; }
-        .navbar { background-color: #FF6600; color: white; padding: 15px; display: flex; justify-content: space-between; border-radius: 5px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; border-radius: 5px; overflow: hidden; }
+        .navbar { background-color: #FF6600; color: white; padding: 15px; display: flex; justify-content: space-between; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        h2 { margin: 0; }
+        
+        .table-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-top: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th { background-color: #333; color: white; padding: 12px; text-align: left; }
         td { padding: 12px; border-bottom: 1px solid #ddd; }
-        select { padding: 5px; }
-        button { background-color: #4D148C; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
-        button:hover { opacity: 0.8; }
+        
+        select { padding: 8px; border-radius: 4px; border: 1px solid #ccc; }
+        button { background-color: #4D148C; color: white; border: none; padding: 8px 15px; cursor: pointer; border-radius: 4px; font-weight: bold; }
+        button:hover { opacity: 0.9; }
+
+        .status-paid { color: green; font-weight: bold; }
+        .status-working { color: #FF6600; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -21,47 +28,82 @@
         <a href="/logout" style="color: white; text-decoration: none; font-weight: bold;">Logout</a>
     </div>
 
-    <h3>My Assigned Cases</h3>
-    <p>Please update the status as you process these accounts.</p>
+    <div class="table-container">
+        <h3 style="color: #4D148C;">🔥 Active Cases (Action Required)</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Customer</th>
+                    <th>Amount Due</th>
+                    <th>Days Overdue</th>
+                    <th>Current Status</th>
+                    <th>Update Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for case in cases %}
+                {% if case.status != 'Paid' %}
+                <tr>
+                    <td>{{ case.customer_name }}</td>
+                    <td>${{ case.amount_due }}</td>
+                    <td>{{ case.days_overdue }}</td>
+                    <td class="status-working">{{ case.status }}</td>
+                    
+                    <td>
+                        <form action="/update_case_status" method="post" style="display:flex; gap:10px;">
+                            <input type="hidden" name="case_id" value="{{ case.case_id }}">
+                            
+                            <select name="new_status">
+                                <option value="In Progress" {% if case.status == 'In Progress' %}selected{% endif %}>In Progress</option>
+                                <option value="Contacted" {% if case.status == 'Contacted' %}selected{% endif %}>Contacted</option>
+                                <option value="Promise to Pay" {% if case.status == 'Promise to Pay' %}selected{% endif %}>Promise to Pay</option>
+                                <option value="Unreachable" {% if case.status == 'Unreachable' %}selected{% endif %}>Unreachable</option>
+                                <option value="Paid" {% if case.status == 'Paid' %}selected{% endif %}>Paid (Close Case)</option>
+                            </select>
+                            
+                            <button type="submit">Update</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endif %}
+                {% else %}
+                <tr><td colspan="5">No active cases.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 
-    <table>
-        <thead>
-            <tr>
-                <th>Customer</th>
-                <th>Amount Due</th>
-                <th>Days Overdue</th>
-                <th>Current Status</th>
-                <th>Update Status</th> </tr>
-        </thead>
-        <tbody>
-            {% for case in cases %}
-            <tr>
-                <td>{{ case.customer_name }}</td>
-                <td>${{ case.amount_due }}</td>
-                <td>{{ case.days_overdue }}</td>
-                <td style="font-weight:bold; color:#4D148C;">{{ case.status }}</td>
-                
-                <td>
-                    <form action="/update_case_status" method="post" style="display:flex; gap:10px;">
-                        <input type="hidden" name="case_id" value="{{ case.case_id }}">
-                        
-                        <select name="new_status">
-                            <option value="In Progress">In Progress</option>
-                            <option value="Contacted">Contacted</option>
-                            <option value="Promise to Pay">Promise to Pay</option>
-                            <option value="Paid">Paid (Closed)</option>
-                            <option value="Unreachable">Unreachable</option>
-                        </select>
-                        
-                        <button type="submit">Update</button>
-                    </form>
-                </td>
-            </tr>
-            {% else %}
-            <tr><td colspan="5">No active cases assigned to you. Good job!</td></tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <div class="table-container" style="opacity: 0.8;">
+        <h3 style="color: green;">✅ Completed History</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Customer</th>
+                    <th>Amount Recovered</th>
+                    <th>Final Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for case in cases %}
+                {% if case.status == 'Paid' %}
+                <tr style="background-color: #f9f9f9;">
+                    <td>{{ case.customer_name }}</td>
+                    <td>${{ case.amount_due }}</td>
+                    <td class="status-paid">Paid & Closed</td>
+                    <td>
+                        <form action="/update_case_status" method="post">
+                            <input type="hidden" name="case_id" value="{{ case.case_id }}">
+                            <input type="hidden" name="new_status" value="In Progress">
+                            <button type="submit" style="background-color: #999; font-size: 12px;">Re-open</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 
 </body>
 </html>
