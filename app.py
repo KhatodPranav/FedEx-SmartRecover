@@ -79,7 +79,32 @@ def run_ai_scoring():
     conn.close()
     return redirect(url_for('admin_dashboard'))
 
-# --- NEW ROUTE: AUTO ALLOCATE (AUTOMATION) ---
+@app.route('/update_risk_settings', methods=['POST'])
+def update_risk_settings():
+    if 'role' not in session or session['role'] != 'admin':
+        return redirect(url_for('login'))
+    
+    # Get list of checked IDs from the form (returns list like ['2', '3'])
+    selected_agency_ids = request.form.getlist('agency_ids')
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # 1. First, RESET everyone to 0 (Remove permission from all)
+    cursor.execute("UPDATE users SET can_handle_risk = 0 WHERE role = 'agency'")
+    
+    # 2. Then, enable ONLY the selected ones
+    if selected_agency_ids:
+        # This weird SQL syntax (tuple(ids)) creates a string like "(2, 3)"
+        format_strings = ','.join(['%s'] * len(selected_agency_ids))
+        cursor.execute(f"UPDATE users SET can_handle_risk = 1 WHERE id IN ({format_strings})", tuple(selected_agency_ids))
+        
+    conn.commit()
+    conn.close()
+    
+    return redirect(url_for('admin_dashboard'))
+
+# --- UPDATED: SMART AUTO-ALLOCATE (ROUND ROBIN) ---
 @app.route('/auto_allocate', methods=['POST'])
 def auto_allocate():
     if 'role' not in session or session['role'] != 'admin':
@@ -88,27 +113,36 @@ def auto_allocate():
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     
-    # 1. Find the best Agency (For this demo, just pick the first one)
-    cursor.execute("SELECT id, username FROM users WHERE role='agency' LIMIT 1")
-    target_agency = cursor.fetchone()
+    # 1. FILTER: Only select agencies who have the Checkbox checked (can_handle_risk = 1)
+    cursor.execute("SELECT id, username FROM users WHERE role='agency' AND can_handle_risk = 1")
+    approved_agencies = cursor.fetchall()
     
-    if target_agency:
-        # 2. Find all 'High Risk' cases that are still 'New'
-        cursor.execute("SELECT case_id FROM cases WHERE risk_score = 'High Risk' AND status = 'New'")
-        hard_cases = cursor.fetchall()
+    if not approved_agencies:
+        conn.close()
+        # You might want to flash a message here, but for now we just return
+        return "Error: No agencies are configured to handle High Risk! Please check the boxes in settings."
+
+    # 2. Find High Risk cases that are New
+    cursor.execute("SELECT case_id FROM cases WHERE risk_score = 'High Risk' AND status = 'New'")
+    hard_cases = cursor.fetchall()
+    
+    count = 0
+    num_agencies = len(approved_agencies)
+    
+    # 3. ROUND ROBIN LOOP (Only among approved agencies)
+    for i, case in enumerate(hard_cases):
+        agency_index = i % num_agencies
+        selected_agency = approved_agencies[agency_index]
         
-        count = 0
-        for case in hard_cases:
-            cursor.execute("UPDATE cases SET assigned_to_agency_id = %s, status = 'Assigned' WHERE case_id = %s", 
-                           (target_agency['id'], case['case_id']))
-            count += 1
-            
-        conn.commit()
-        log_audit(None, session['id'], 'AUTO_ALLOCATE', f"Bot auto-assigned {count} High Risk cases to {target_agency['username']}")
+        cursor.execute("UPDATE cases SET assigned_to_agency_id = %s, status = 'Assigned' WHERE case_id = %s", 
+                       (selected_agency['id'], case['case_id']))
+        count += 1
+        
+    conn.commit()
+    log_audit(None, session['id'], 'AUTO_ALLOCATE', f"Distributed {count} High Risk cases to {num_agencies} certified agencies.")
     
     conn.close()
     return redirect(url_for('admin_dashboard'))
-
 
 @app.route('/', methods=['GET', 'POST'])
 def login():
@@ -145,22 +179,58 @@ def admin_dashboard():
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     
+    # --- 1. CORE DATA ---
+    cursor.execute("SELECT * FROM cases")
+    all_cases = cursor.fetchall()
+    
     cursor.execute("""
         SELECT a.timestamp, u.username, a.action_type, a.description 
-        FROM audit_logs a 
-        JOIN users u ON a.action_by_user_id = u.id 
+        FROM audit_logs a JOIN users u ON a.action_by_user_id = u.id 
         ORDER BY a.timestamp DESC LIMIT 10
     """)
     recent_logs = cursor.fetchall()
     
-    cursor.execute("SELECT * FROM cases")
-    all_cases = cursor.fetchall()
-
     cursor.execute("SELECT * FROM users WHERE role = 'agency'")
     agencies = cursor.fetchall()
 
+    # --- 2. KPI CARDS (THE MONEY STATS) ---
+    cursor.execute("SELECT SUM(amount_due) as total FROM cases")
+    result = cursor.fetchone()
+    total_debt = result['total'] if result and result['total'] else 0
+    
+    cursor.execute("SELECT SUM(amount_due) as recovered FROM cases WHERE status='Paid'")
+    result_rec = cursor.fetchone()
+    total_recovered = result_rec['recovered'] if result_rec and result_rec['recovered'] else 0
+    
+    if total_debt > 0:
+        recovery_rate = round((total_recovered / total_debt) * 100, 1)
+    else:
+        recovery_rate = 0
+
+    # --- 3. CHART 1: STATUS SPLIT ---
+    cursor.execute("SELECT status, COUNT(*) as count FROM cases GROUP BY status")
+    status_res = cursor.fetchall()
+    status_labels = [row['status'] for row in status_res]
+    status_counts = [row['count'] for row in status_res]
+
+    # --- 4. CHART 2: RISK SPLIT ---
+    cursor.execute("SELECT risk_score, COUNT(*) as count FROM cases GROUP BY risk_score")
+    risk_res = cursor.fetchall()
+    risk_labels = [row['risk_score'] if row['risk_score'] else 'Unscored' for row in risk_res]
+    risk_counts = [row['count'] for row in risk_res]
+
     conn.close()
-    return render_template('admin_dashboard.html', cases=all_cases, logs=recent_logs, agencies=agencies)
+    return render_template('admin_dashboard.html', 
+                           cases=all_cases, 
+                           logs=recent_logs, 
+                           agencies=agencies,
+                           # KPIs
+                           total_debt="{:,.2f}".format(total_debt), 
+                           total_recovered="{:,.2f}".format(total_recovered),
+                           recovery_rate=recovery_rate,
+                           # Charts
+                           status_labels=status_labels, status_counts=status_counts,
+                           risk_labels=risk_labels, risk_counts=risk_counts)
 
 @app.route('/add_agency', methods=['POST'])
 def add_agency():
@@ -281,7 +351,6 @@ def update_case_status():
 
 @app.route('/agency')
 def agency_dashboard():
-
     if 'role' not in session or session['role'] != 'agency':
         return redirect(url_for('login'))
     
@@ -289,12 +358,32 @@ def agency_dashboard():
     cursor = conn.cursor(dictionary=True)
     
     agency_id = session['id']
+    
+    # 1. Fetch My Cases
     cursor.execute("SELECT * FROM cases WHERE assigned_to_agency_id = %s", (agency_id,))
     my_cases = cursor.fetchall()
     
+    # 2. Calculate Stats (Three Categories now)
+    completed_count = 0
+    pending_count = 0
+    rejected_count = 0  # <--- NEW VARIABLE
+    
+    for case in my_cases:
+        if case['status'] == 'Paid':
+            completed_count += 1
+        elif case['status'] == 'Rejected':
+            rejected_count += 1
+        else:
+            # Only "Assigned", "In Progress", "Contacted" count as actual work
+            pending_count += 1
+            
     conn.close()
     
-    return render_template('agency_dashboard.html', cases=my_cases)
+    return render_template('agency_dashboard.html', 
+                           cases=my_cases, 
+                           completed_count=completed_count, 
+                           pending_count=pending_count,
+                           rejected_count=rejected_count) # Pass this new number
 
 @app.route('/logout')
 def logout():

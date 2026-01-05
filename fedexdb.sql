@@ -37,3 +37,5 @@ INSERT INTO users (username, password, role) VALUES ('admin', 'admin123', 'admin
 
 INSERT INTO users (username, password, role, agency_name, rating) 
 VALUES ('agency1', 'agency123', 'agency', 'RapidRecover Inc', 4.5);
+
+ALTER TABLE users ADD COLUMN can_handle_risk BOOLEAN DEFAULT 0;
