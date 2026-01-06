@@ -221,6 +221,7 @@ def admin_dashboard():
 
     conn.close()
     return render_template('admin_dashboard.html', 
+                           now=datetime.now(),
                            cases=all_cases, 
                            logs=recent_logs, 
                            agencies=agencies,
@@ -313,16 +314,19 @@ def assign_case():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    
-    sql = "UPDATE cases SET assigned_to_agency_id = %s, status = 'Assigned' WHERE case_id = %s"
+    # UPDATED SQL: Set last_updated = NOW()
+    sql = """
+        UPDATE cases 
+        SET assigned_to_agency_id = %s, status = 'Assigned', last_updated = NOW() 
+        WHERE case_id = %s
+    """
     cursor.execute(sql, (agency_id, case_id))
     
+    # (Rest of the function remains the same...)
     cursor.execute("SELECT username FROM users WHERE id = %s", (agency_id,))
     agency_name = cursor.fetchone()[0]
-
     conn.commit()
     log_audit(case_id, session['id'], 'MANUAL_ASSIGN', f"Assigned Case #{case_id} to Agency '{agency_name}'")
-    
     conn.close()
     return redirect(url_for('admin_dashboard'))
 
@@ -338,15 +342,16 @@ def update_case_status():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    sql = "UPDATE cases SET status = %s WHERE case_id = %s AND assigned_to_agency_id = %s"
+    sql = """
+        UPDATE cases 
+        SET status = %s, last_updated = NOW() 
+        WHERE case_id = %s AND assigned_to_agency_id = %s
+    """
     cursor.execute(sql, (new_status, case_id, agency_id))
     
     conn.commit()
-
-    log_audit(case_id, agency_id, 'STATUS_UPDATE', f"Agency updated status to '{new_status}'")
     
     conn.close()
-    
     return redirect(url_for('agency_dashboard'))
 
 @app.route('/agency')

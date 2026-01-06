@@ -413,17 +413,27 @@
                             {% else %}
                             <span style="color: gray;">Pending...</span>
                             {% endif %}
+                            
                         </td>
                         <td>
+                            {% if case.last_updated and case.status not in ['Paid', 'New', 'Rejected'] %}
+                                {% set days_inactive = (now - case.last_updated).days %}
+                                
+                                {% if days_inactive > 5 %}
+                                    <div style="color: red; font-size: 11px; font-weight: bold; margin-bottom: 3px;">
+                                        ⚠️ SLA BREACHED ({{ days_inactive }}d)
+                                    </div>
+                                {% endif %}
+                            {% endif %}
+
                             {% if case.status == 'New' %}
-                            <span class="status-new">New</span>
+                                <span class="status-new">New</span>
                             {% elif case.status == 'Rejected' %}
-                            <span style="background: red; color: white; padding: 3px 6px; border-radius: 4px;">⚠️
-                                Rejected</span>
+                                <span style="background: red; color: white; padding: 3px 6px; border-radius: 4px;">⚠️ Rejected</span>
                             {% elif case.status == 'Paid' %}
-                            <span class="status-paid">Paid</span>
+                                <span class="status-paid">Paid</span>
                             {% else %}
-                            <span>{{ case.status }}</span>
+                                <span>{{ case.status }}</span>
                             {% endif %}
                         </td>
 
